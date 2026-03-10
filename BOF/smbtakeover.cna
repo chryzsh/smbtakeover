@@ -15,7 +15,7 @@ alias bof_smbtakeover {
    
     # read in the right BOF file
     #$handle = openf(script_resource("/mnt/hgfs/Desktop/bof. $+ $barch $+ .o"));
-    $handle = openf(script_resource("bof.x64.o"));
+    $handle = openf(script_resource("smbtakeover.x64.o"));
     $data   = readb($handle, -1);
     closef($handle);
 

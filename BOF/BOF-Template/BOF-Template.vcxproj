@@ -40,7 +40,7 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
-    <LocalDebuggerCommand>Debug\bof.exe</LocalDebuggerCommand>
+    <LocalDebuggerCommand>Debug\smbtakeover.exe</LocalDebuggerCommand>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='UnitTest|Win32'" Label="Configuration">
@@ -61,7 +61,7 @@
     <UseDebugLibraries>true</UseDebugLibraries>
     <PlatformToolset>v143</PlatformToolset>
     <CharacterSet>Unicode</CharacterSet>
-    <LocalDebuggerCommand>x64\Debug\bof.exe</LocalDebuggerCommand>
+    <LocalDebuggerCommand>x64\Debug\smbtakeover.exe</LocalDebuggerCommand>
     <DebuggerFlavor>WindowsLocalDebugger</DebuggerFlavor>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='UnitTest|x64'" Label="Configuration">
@@ -226,8 +226,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="base\mock.cpp" />
-    <ClCompile Include="bof.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\source\repos\BOF-Template\x64\Debug\bof.exe</ExcludedFromBuild>
+    <ClCompile Include="smbtakeover.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">C:\Users\User\source\repos\BOF-Template\x64\Debug\smbtakeover.exe</ExcludedFromBuild>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>

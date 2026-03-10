@@ -7,7 +7,7 @@ from outflank_stage1.task.exceptions import TaskInvalidArgumentsException
 
 class SmbTakeoverBOF(BaseBOFTask):
     def __init__(self):
-        super().__init__("smbtakeover", base_binary_name="bof.x64")
+        super().__init__("smbtakeover", base_binary_name="smbtakeover")
 
         self.parser.description = (
             "Interact with the Service Control Manager (SCM) to check, start, or stop "
