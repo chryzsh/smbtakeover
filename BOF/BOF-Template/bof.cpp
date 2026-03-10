@@ -27,26 +27,25 @@ extern "C" {
     DFR(KERNEL32, GetLastError);
     #define GetLastError KERNEL32$GetLastError
 
-	formatp OutputBuffer;
-	char lanmanBinPath[1024];
-	char srv2BinPath[1024];
-	char srvnetBinPath[1024];
+	// Fix #1: Initialize globals to avoid .bss section
+	formatp OutputBuffer = {0};
+	char lanmanBinPath[1024] = {0};
+	char srv2BinPath[1024] = {0};
+	char srvnetBinPath[1024] = {0};
 
 	DWORD ConfigTargetService(const char* Hostname, const char* cpServiceName, const char* binpath, DWORD errmode, DWORD state)
 	{
-		
+
 		DWORD dwResult = ERROR_SUCCESS;
 		SC_HANDLE scManager = NULL;
 		SC_HANDLE scService = NULL;
 
 		// Open the service control manager
-		//scManager = ADVAPI32$OpenSCManagerA(Hostname, SERVICES_ACTIVE_DATABASEA, SC_MANAGER_CONNECT);
         DFR_LOCAL(ADVAPI32, OpenSCManagerA);
         scManager = OpenSCManagerA(Hostname, SERVICES_ACTIVE_DATABASEA, SC_MANAGER_CONNECT);
 		if (NULL == scManager)
 		{
 			dwResult = GetLastError();
-			//BeaconPrintf("OpenSCManagerA failed (%lu)\n", dwResult);
             BeaconPrintf(CALLBACK_OUTPUT, "OpenSCManagerA failed (%lu)\n", dwResult);
 			goto config_service_end;
 		}
@@ -57,7 +56,6 @@ extern "C" {
 		if (NULL == scService)
 		{
 			dwResult = GetLastError();
-			//BeaconPrintf("OpenServiceA failed (%lu)\n", dwResult);
              BeaconPrintf(CALLBACK_OUTPUT, "OpenServiceA failed (%lu)\n", dwResult);
 			goto config_service_end;
 		}
@@ -80,19 +78,17 @@ extern "C" {
 			)
 		{
 			dwResult = GetLastError();
-			//BeaconPrintf("ChangeServiceConfigA failed (%lu)\n", dwResult);
 			BeaconPrintf(CALLBACK_OUTPUT, "ChangeServiceConfigA failed (%lu)\n", dwResult);
 			goto config_service_end;
 		}
 
-		
 
 
 	config_service_end:
 		DFR_LOCAL(ADVAPI32, CloseServiceHandle);
 		if (scService)
 		{
-            
+
 			CloseServiceHandle(scService);
 			scService = NULL;
 		}
@@ -137,10 +133,10 @@ extern "C" {
 
     // Get the service status process struct
 	DFR_LOCAL(ADVAPI32, QueryServiceStatusEx);
-    if ( FALSE == QueryServiceStatusEx( 
-            scService, 
+    if ( FALSE == QueryServiceStatusEx(
+            scService,
             SC_STATUS_PROCESS_INFO,
-            (LPBYTE)&ssp, 
+            (LPBYTE)&ssp,
             sizeof(SERVICE_STATUS_PROCESS),
             &dwBytesNeeded
             )
@@ -161,19 +157,19 @@ extern "C" {
     }
 
     // If a stop is pending, wait for it
-    if ( ssp.dwCurrentState == SERVICE_STOP_PENDING ) 
+    if ( ssp.dwCurrentState == SERVICE_STOP_PENDING )
     {
         BeaconPrintf(CALLBACK_OUTPUT, "Service stop pending...\n");
         goto stop_service_end;
     }
 
-    
+
     // Now we can finally Send a stop code to the service
 	DFR_LOCAL(ADVAPI32, ControlService);
-    if ( FALSE == ControlService( 
-            scService, 
-            SERVICE_CONTROL_STOP, 
-            (LPSERVICE_STATUS) &ssp 
+    if ( FALSE == ControlService(
+            scService,
+            SERVICE_CONTROL_STOP,
+            (LPSERVICE_STATUS) &ssp
             )
         )
     {
@@ -248,18 +244,19 @@ extern "C" {
 				CloseServiceHandle(scManager);
 				scManager = NULL;
 			}
-		
+
 		return dwResult;
 	}
 
 
+	// Fix #3: Rewritten CheckServiceStatus with proper goto cleanup and return value
 	BOOL CheckServiceStatus(const char* Hostname, const char* cpServiceName) {
-		// Open the service control manager
 		SC_HANDLE scManager = NULL;
 		SC_HANDLE scService = NULL;
 		SERVICE_STATUS_PROCESS ssp;
 		DWORD dwBytesNeeded = 0;
 		DWORD dwResult = ERROR_SUCCESS;
+		BOOL bRunning = FALSE;
 
 		DFR_LOCAL(ADVAPI32, OpenSCManagerA);
 		scManager = OpenSCManagerA(Hostname, SERVICES_ACTIVE_DATABASEA, SC_MANAGER_CONNECT);
@@ -294,17 +291,12 @@ extern "C" {
 			dwResult = KERNEL32$GetLastError();
 			BeaconPrintf(CALLBACK_OUTPUT, "QueryServiceStatusEx failed (%lX)\n", dwResult);
 			goto check_bound_end;
-
 		}
 
 		// Check the current state of the service
 		if (ssp.dwCurrentState == SERVICE_RUNNING)
 		{
-			return TRUE;
-		}
-		else
-		{
-			return FALSE;
+			bRunning = TRUE;
 		}
 
 	check_bound_end:
@@ -320,9 +312,12 @@ extern "C" {
 			CloseServiceHandle(scManager);
 			scManager = NULL;
 		}
+
+		return bRunning;
 	}
 
 
+	// Fix #2: Rewritten GetServiceStartType with strcmp instead of assignment
 	DWORD GetServiceStartType(const char* hostname, const char* serviceName) {
 		SC_HANDLE scManager = NULL;
 		SC_HANDLE scService = NULL;
@@ -331,6 +326,12 @@ extern "C" {
 		LPQUERY_SERVICE_CONFIG lpsc = NULL;
 		DWORD dwBytesNeeded, cbBufSize, dwError;
 
+		DFR_LOCAL(MSVCRT, strcmp);
+		DFR_LOCAL(MSVCRT, strncpy);
+		DFR_LOCAL(KERNEL32, LocalAlloc);
+		DFR_LOCAL(KERNEL32, LocalFree);
+		DFR_LOCAL(ADVAPI32, CloseServiceHandle);
+
 		// Open the service control manager
 		DFR_LOCAL(ADVAPI32, OpenSCManagerA);
 		scManager = OpenSCManagerA(hostname, NULL, SC_MANAGER_CONNECT);
@@ -338,26 +339,23 @@ extern "C" {
 			BeaconPrintf(CALLBACK_OUTPUT, "OpenSCManager failed with error: %lX\n", GetLastError());
 			return SERVICE_NO_CHANGE;
 		}
-		DFR_LOCAL(ADVAPI32, CloseServiceHandle);
+
 		// Open the service
 		DFR_LOCAL(ADVAPI32, OpenServiceA);
 		scService = OpenServiceA(scManager, serviceName, SERVICE_QUERY_CONFIG);
 		if (scService == NULL) {
 			BeaconPrintf(CALLBACK_OUTPUT, "OpenService failed with error: %lX\n", GetLastError());
-			
 			CloseServiceHandle(scManager);
 			return SERVICE_NO_CHANGE;
 		}
 
 		// Call QueryServiceConfig to find the size of the buffer needed
 		DFR_LOCAL(ADVAPI32, QueryServiceConfigA);
-		DFR_LOCAL(KERNEL32, LocalFree);
 		success = QueryServiceConfigA(scService, NULL, 0, &dwBytesNeeded);
 		if (!success) {
 			dwError = GetLastError();
 			if (dwError == ERROR_INSUFFICIENT_BUFFER) {
 				cbBufSize = dwBytesNeeded;
-				DFR_LOCAL(KERNEL32, LocalAlloc);
 				lpsc = (LPQUERY_SERVICE_CONFIG)LocalAlloc(LMEM_FIXED, cbBufSize);
 				if (lpsc == NULL) {
 					BeaconPrintf(CALLBACK_OUTPUT, "LocalAlloc failed with error: %lX\n", GetLastError());
@@ -377,21 +375,19 @@ extern "C" {
 
 				// Now that we have the configuration, we can check the start type
 				startType = lpsc->dwStartType;
-				DFR_LOCAL(MSVCRT, strncpy);
-				if (serviceName = "LanmanServer") {
-					strncpy (lanmanBinPath, lpsc->lpBinaryPathName, sizeof(lanmanBinPath) - 1);
-				} 
-				if (serviceName = "srv2") {
-					
-					strncpy (srv2BinPath, lpsc->lpBinaryPathName, sizeof(srv2BinPath) - 1);
 
-				} 
-				if (serviceName = "srvnet") {
-					strncpy (srvnetBinPath, lpsc->lpBinaryPathName, sizeof(srvnetBinPath) - 1);
-					
+				// Fix #2: Use strcmp() instead of = assignment
+				if (strcmp(serviceName, "LanmanServer") == 0) {
+					strncpy(lanmanBinPath, lpsc->lpBinaryPathName, sizeof(lanmanBinPath) - 1);
+					lanmanBinPath[sizeof(lanmanBinPath) - 1] = '\0';
+				} else if (strcmp(serviceName, "srv2") == 0) {
+					strncpy(srv2BinPath, lpsc->lpBinaryPathName, sizeof(srv2BinPath) - 1);
+					srv2BinPath[sizeof(srv2BinPath) - 1] = '\0';
+				} else if (strcmp(serviceName, "srvnet") == 0) {
+					strncpy(srvnetBinPath, lpsc->lpBinaryPathName, sizeof(srvnetBinPath) - 1);
+					srvnetBinPath[sizeof(srvnetBinPath) - 1] = '\0';
 				}
-					
-				//BeaconPrintf(CALLBACK_OUTPUT, "Service start type: %lX\n", startType);
+
 			} else {
 				BeaconPrintf(CALLBACK_OUTPUT, "QueryServiceConfig failed with error: %lX\n", dwError);
 				CloseServiceHandle(scService);
@@ -412,97 +408,124 @@ extern "C" {
 
 
 
+	// Fix #4: Rewritten CheckProcessIntegrityLevel with proper cleanup
 	DWORD CheckProcessIntegrityLevel() {
-		HANDLE hToken;
+		HANDLE hToken = NULL;
 		DWORD dwLengthNeeded;
 		DWORD dwError = ERROR_SUCCESS;
 		PTOKEN_MANDATORY_LABEL pTIL = NULL;
-		LPWSTR pStringSid;
-		DWORD dwIntegrityLevel;
+		DWORD dwIntegrityLevel = SECURITY_MANDATORY_LOW_RID;
 
 		DFR_LOCAL(KERNEL32, OpenProcessToken);
 		DFR_LOCAL(ADVAPI32, GetTokenInformation);
-		DFR_LOCAL(KERNEL32, GetCurrentProcess)
+		DFR_LOCAL(KERNEL32, GetCurrentProcess);
 		DFR_LOCAL(KERNEL32, CloseHandle);
 		DFR_LOCAL(KERNEL32, LocalAlloc);
 		DFR_LOCAL(KERNEL32, LocalFree);
 		DFR_LOCAL(ADVAPI32, GetSidSubAuthority);
 		DFR_LOCAL(ADVAPI32, GetSidSubAuthorityCount);
-		
-		if (OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
-			// Call GetTokenInformation to get the buffer size.
-			if (!GetTokenInformation(hToken, TokenIntegrityLevel, NULL, 0, &dwLengthNeeded)) {
-				dwError = GetLastError();
-				if (dwError == ERROR_INSUFFICIENT_BUFFER) {
-					pTIL = (PTOKEN_MANDATORY_LABEL)LocalAlloc(0, dwLengthNeeded);
-					if (pTIL != NULL) {
-						// Call GetTokenInformation again to get the integrity level.
-						if (GetTokenInformation(hToken, TokenIntegrityLevel, pTIL, dwLengthNeeded, &dwLengthNeeded)) {
-							dwIntegrityLevel = *GetSidSubAuthority(pTIL->Label.Sid, (DWORD)(UCHAR)(*GetSidSubAuthorityCount(pTIL->Label.Sid) - 1));
 
-							if (dwIntegrityLevel >= SECURITY_MANDATORY_SYSTEM_RID) {
-								return SECURITY_MANDATORY_SYSTEM_RID;
-							} else if (dwIntegrityLevel == SECURITY_MANDATORY_HIGH_RID) {
-								return SECURITY_MANDATORY_HIGH_RID;
-							} else if (dwIntegrityLevel >= SECURITY_MANDATORY_SYSTEM_RID) {
-								return SECURITY_MANDATORY_SYSTEM_RID;
-							} else {
-								return SECURITY_MANDATORY_LOW_RID;
-							}
-						}
-						LocalFree(pTIL);
-					}
-				}
-			}
-			CloseHandle(hToken);
-		} else {
+		if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken)) {
 			BeaconPrintf(CALLBACK_OUTPUT, "[!] Failed to open process token for integrity level check.\n");
-			//std::cout << "Failed to open process token." << std::endl;
+			return SECURITY_MANDATORY_LOW_RID;
+		}
+
+		// Call GetTokenInformation to get the buffer size.
+		if (!GetTokenInformation(hToken, TokenIntegrityLevel, NULL, 0, &dwLengthNeeded)) {
+			dwError = GetLastError();
+			if (dwError != ERROR_INSUFFICIENT_BUFFER) {
+				goto integrity_cleanup;
+			}
+
+			pTIL = (PTOKEN_MANDATORY_LABEL)LocalAlloc(0, dwLengthNeeded);
+			if (pTIL == NULL) {
+				goto integrity_cleanup;
+			}
+
+			// Call GetTokenInformation again to get the integrity level.
+			if (GetTokenInformation(hToken, TokenIntegrityLevel, pTIL, dwLengthNeeded, &dwLengthNeeded)) {
+				dwIntegrityLevel = *GetSidSubAuthority(pTIL->Label.Sid, (DWORD)(UCHAR)(*GetSidSubAuthorityCount(pTIL->Label.Sid) - 1));
+			}
+		}
+
+	integrity_cleanup:
+		if (pTIL) {
+			LocalFree(pTIL);
+		}
+		if (hToken) {
+			CloseHandle(hToken);
+		}
+
+		// Fix #7: Removed duplicate SYSTEM_RID check, return actual level
+		if (dwIntegrityLevel >= SECURITY_MANDATORY_SYSTEM_RID) {
+			return SECURITY_MANDATORY_SYSTEM_RID;
+		} else if (dwIntegrityLevel >= SECURITY_MANDATORY_HIGH_RID) {
+			return SECURITY_MANDATORY_HIGH_RID;
+		} else if (dwIntegrityLevel >= SECURITY_MANDATORY_MEDIUM_RID) {
+			return SECURITY_MANDATORY_MEDIUM_RID;
+		} else {
+			return SECURITY_MANDATORY_LOW_RID;
 		}
 	}
 
     void go(char* args, int len) {
 		datap parser;
 		BeaconDataParse(&parser, args, len);
-		char* hostname;
-		int hostnameLen;
-		char* action;
-		int actionLen;
+
+		char* hostname = NULL;
+		char* action = NULL;
+		int hostnameLen = 0;
+		int actionLen = 0;
+
 		hostname = BeaconDataExtract(&parser, &hostnameLen);
 		action = BeaconDataExtract(&parser, &actionLen);
 
-		BeaconFormatAlloc(&OutputBuffer, 4096);
-		//print action
-		//BeaconFormatPrintf(&OutputBuffer, "  [*] Action: %s\n", action);
+		// Fix #8: Declare DFR imports once at the top of the function
 		DFR_LOCAL(MSVCRT, strcmp);
+		DFR_LOCAL(MSVCRT, _stricmp);
+
+		// Normalize localhost/127.0.0.1 to NULL for local SCM access
+		if (hostname &&
+			(_stricmp(hostname, "localhost") == 0 ||
+				strcmp(hostname, "127.0.0.1") == 0)) {
+			hostname = NULL;
+		}
+
+		if (!action) {
+			BeaconPrintf(CALLBACK_OUTPUT, "[!] No action specified. Use: check, start, or stop\n");
+			return;
+		}
+
+		// Fix #6: Single action dispatch, no debug duplication
+		BeaconFormatAlloc(&OutputBuffer, 4096);
 
 		if (strcmp(action, "check") == 0) {
 			DWORD lanmanStartType = GetServiceStartType(hostname, "LanmanServer");
 			DWORD srv2StartType = GetServiceStartType(hostname, "srv2");
 			DWORD srvnetStartType = GetServiceStartType(hostname, "srvnet");
-			DWORD lanmanRunning = CheckServiceStatus(hostname, "LanmanServer");																							
+			DWORD lanmanRunning = CheckServiceStatus(hostname, "LanmanServer");
 			DWORD srv2Running = CheckServiceStatus(hostname, "srv2");
 			DWORD srvnetRunning = CheckServiceStatus(hostname, "srvnet");
 
 			BeaconFormatPrintf(&OutputBuffer, "\n  --------------------CHECKING SERVICES----------------------\n\n");
 			BeaconFormatPrintf(&OutputBuffer, "  [*] LanmanServer\n");
 			BeaconFormatPrintf(&OutputBuffer, "          |------- state:     %s\n", lanmanRunning ? "Running" : "Stopped");
-			BeaconFormatPrintf(&OutputBuffer, "          |------- starttype: %s\n", 
-				lanmanStartType == SERVICE_DEMAND_START ? "MANUAL" : 
+			BeaconFormatPrintf(&OutputBuffer, "          |------- starttype: %s\n",
+				lanmanStartType == SERVICE_DEMAND_START ? "MANUAL" :
 				lanmanStartType == SERVICE_AUTO_START ? "AUTO" :
 				lanmanStartType == SERVICE_DISABLED ? "DISABLED" : "UNKNOWN");
 			BeaconFormatPrintf(&OutputBuffer, "          |------- path:      %s\n\n", lanmanBinPath);
 			BeaconFormatPrintf(&OutputBuffer, "  [*] srv2\n");
 			BeaconFormatPrintf(&OutputBuffer, "          |------- state:     %s\n", srv2Running ? "Running" : "Stopped");
-			BeaconFormatPrintf(&OutputBuffer, "          |------- starttype: %s\n", 
-				srv2StartType == SERVICE_DEMAND_START ? "MANUAL" : 
-				srv2StartType == SERVICE_AUTO_START ? "AUTO" : 
+			BeaconFormatPrintf(&OutputBuffer, "          |------- starttype: %s\n",
+				srv2StartType == SERVICE_DEMAND_START ? "MANUAL" :
+				srv2StartType == SERVICE_AUTO_START ? "AUTO" :
 				srv2StartType == SERVICE_DISABLED ? "DISABLED" : "UNKNOWN");
 			BeaconFormatPrintf(&OutputBuffer, "          |------- path:      %s\n\n", srv2BinPath);
 			BeaconFormatPrintf(&OutputBuffer, "  [*] srvnet\n");
 			BeaconFormatPrintf(&OutputBuffer, "          |------- state:     %s\n", srvnetRunning ? "Running" : "Stopped");
-			BeaconFormatPrintf(&OutputBuffer, "          |------- starttype: %s\n", 
-				srvnetStartType == SERVICE_DEMAND_START ? "MANUAL" : 
+			BeaconFormatPrintf(&OutputBuffer, "          |------- starttype: %s\n",
+				srvnetStartType == SERVICE_DEMAND_START ? "MANUAL" :
 				srvnetStartType == SERVICE_AUTO_START ? "AUTO" :
 				srvnetStartType == SERVICE_DISABLED ? "DISABLED" : "UNKNOWN");
 			BeaconFormatPrintf(&OutputBuffer, "          |------- path:      %s\n\n", srvnetBinPath);
@@ -516,19 +539,16 @@ extern "C" {
 				BeaconFormatPrintf(&OutputBuffer, "  [!] Error occured while checking relevant services...\n\n");
 			}
 
-			BeaconPrintf(CALLBACK_OUTPUT, "%s\n", BeaconFormatToString(&OutputBuffer, NULL));
-
 		} else if (strcmp(action, "start") == 0) {
-			if (CheckProcessIntegrityLevel() != SECURITY_MANDATORY_SYSTEM_RID && CheckProcessIntegrityLevel() != SECURITY_MANDATORY_HIGH_RID) {
+			DWORD integrityLevel = CheckProcessIntegrityLevel();
+			if (integrityLevel != SECURITY_MANDATORY_SYSTEM_RID && integrityLevel != SECURITY_MANDATORY_HIGH_RID) {
 				BeaconFormatPrintf(&OutputBuffer, "  [!] You should be running at a SYSTEM or HIGH integrity level for this functionality.\n");
-				BeaconPrintf(CALLBACK_OUTPUT, "%s\n", BeaconFormatToString(&OutputBuffer, NULL));
-				return;
+				goto go_output;
 			}
 
 			DWORD configLanmanResult = ConfigTargetService(hostname, "LanmanServer", NULL, 0, SERVICE_AUTO_START);
 			DWORD startLanmanResult = StartTargetService(hostname, "LanmanServer");
 
-			//if configResult and startResult are both ERROR_SUCCESS, use BeaconPrintf to print a message to the console
 			if (configLanmanResult == ERROR_SUCCESS && startLanmanResult == ERROR_SUCCESS) {
 				BeaconFormatPrintf(&OutputBuffer, "\n  ----------------RESUME SMB FUNCTIONALITY------------\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  [*] LanmanServer\n");
@@ -537,13 +557,13 @@ extern "C" {
 				BeaconFormatPrintf(&OutputBuffer, "       |--- action: Started\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  ----------------------------------------------------\n\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  [+] 445/tcp bound - TRUE\n\n");
-				BeaconPrintf(CALLBACK_OUTPUT, "%s\n", BeaconFormatToString(&OutputBuffer, NULL));
 			}
-		} else if (strcmp(action, "stop") == 0){
-			if (CheckProcessIntegrityLevel() != SECURITY_MANDATORY_SYSTEM_RID && CheckProcessIntegrityLevel() != SECURITY_MANDATORY_HIGH_RID){
+
+		} else if (strcmp(action, "stop") == 0) {
+			DWORD integrityLevel = CheckProcessIntegrityLevel();
+			if (integrityLevel != SECURITY_MANDATORY_SYSTEM_RID && integrityLevel != SECURITY_MANDATORY_HIGH_RID) {
 				BeaconFormatPrintf(&OutputBuffer, "  [!] You should be running at a SYSTEM or HIGH integrity level for this functionality.\n");
-				BeaconPrintf(CALLBACK_OUTPUT, "%s\n", BeaconFormatToString(&OutputBuffer, NULL));
-				return;
+				goto go_output;
 			}
 
 			DWORD configLanmanResult = ConfigTargetService(hostname, "LanmanServer", NULL, 0, SERVICE_DISABLED);
@@ -551,7 +571,6 @@ extern "C" {
 			DWORD stopSrv2Result = StopTargetService(hostname, "srv2");
 			DWORD stopSrvnetResult = StopTargetService(hostname, "srvnet");
 
-			//if configResult and startResult are both ERROR_SUCCESS, use BeaconPrintf to print a message to the console
 			if (configLanmanResult == ERROR_SUCCESS && stopLanmanResult == ERROR_SUCCESS && stopSrv2Result == ERROR_SUCCESS && stopSrvnetResult == ERROR_SUCCESS) {
 				BeaconFormatPrintf(&OutputBuffer, "\n  -------------STOPPING SMB FUNCTIONALITY----------\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  [*] LanmanServer\n");
@@ -564,13 +583,27 @@ extern "C" {
 				BeaconFormatPrintf(&OutputBuffer, "       |--- action: Stopped\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  ----------------------------------------------------\n\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  [+] 445/tcp bound - FALSE\n\n");
-				BeaconPrintf(CALLBACK_OUTPUT, "%s\n", BeaconFormatToString(&OutputBuffer, NULL));
+			}
+
+		} else {
+			BeaconPrintf(CALLBACK_OUTPUT, "[!] Unknown action: '%s'. Use: check, start, or stop\n", action);
+			BeaconFormatFree(&OutputBuffer);
+			return;
+		}
+
+	// Fix #5: Use BeaconOutput with length instead of BeaconPrintf with %s
+	go_output:
+		{
+			int outlen = 0;
+			char* out = BeaconFormatToString(&OutputBuffer, &outlen);
+			if (out && outlen > 0) {
+				BeaconOutput(CALLBACK_OUTPUT, out, outlen);
 			}
 		}
 		BeaconFormatFree(&OutputBuffer);
     }
 
-    
+
 }
 
 // Define a main function for the bebug build
@@ -579,7 +612,7 @@ extern "C" {
 int main(int argc, char* argv[]) {
     // Run BOF's entrypoint
     // To pack arguments for the bof use e.g.: bof::runMocked<int, short, const char*>(go, 6502, 42, "foobar");
-    bof::runMocked<const char *, const char *>(go, "127.0.0.1", "start");
+    bof::runMocked<const char *, const char *>(go, "127.0.0.1", "check");
     return 0;
 }
 
