@@ -227,7 +227,16 @@ extern "C" {
 		if( FALSE == StartServiceA(scService, 0, NULL))
 		{
 			dwResult = KERNEL32$GetLastError();
+			if (dwResult == ERROR_SERVICE_ALREADY_RUNNING)
+			{
+				dwResult = ERROR_SUCCESS;
+				goto start_service_end;
+			}
 			BeaconPrintf(CALLBACK_OUTPUT, "StartServiceA failed (%lX)\n", dwResult);
+			if (dwResult == ERROR_SERVICE_DEPENDENCY_FAIL)
+			{
+				BeaconPrintf(CALLBACK_OUTPUT, "Dependency start failed for %s. Verify srv2/srvnet and related dependents.\n", cpServiceName);
+			}
 			goto start_service_end;
 		}
 
@@ -246,6 +255,11 @@ extern "C" {
 			}
 
 		return dwResult;
+	}
+
+	BOOL IsServiceActionSuccess(DWORD result)
+	{
+		return result == ERROR_SUCCESS;
 	}
 
 
@@ -546,17 +560,40 @@ extern "C" {
 				goto go_output;
 			}
 
+			DWORD configSrv2Result = ConfigTargetService(hostname, "srv2", NULL, 0, SERVICE_DEMAND_START);
+			DWORD configSrvnetResult = ConfigTargetService(hostname, "srvnet", NULL, 0, SERVICE_DEMAND_START);
 			DWORD configLanmanResult = ConfigTargetService(hostname, "LanmanServer", NULL, 0, SERVICE_AUTO_START);
+			DWORD startSrvnetResult = StartTargetService(hostname, "srvnet");
+			DWORD startSrv2Result = StartTargetService(hostname, "srv2");
 			DWORD startLanmanResult = StartTargetService(hostname, "LanmanServer");
 
-			if (configLanmanResult == ERROR_SUCCESS && startLanmanResult == ERROR_SUCCESS) {
+			if (IsServiceActionSuccess(configSrv2Result) &&
+				IsServiceActionSuccess(configSrvnetResult) &&
+				IsServiceActionSuccess(configLanmanResult) &&
+				IsServiceActionSuccess(startSrv2Result) &&
+				IsServiceActionSuccess(startSrvnetResult) &&
+				IsServiceActionSuccess(startLanmanResult)) {
 				BeaconFormatPrintf(&OutputBuffer, "\n  ----------------RESUME SMB FUNCTIONALITY------------\n\n");
+				BeaconFormatPrintf(&OutputBuffer, "  [*] srv2\n");
+				BeaconFormatPrintf(&OutputBuffer, "       |--- action: starttype=Manual\n");
+				BeaconFormatPrintf(&OutputBuffer, "       |--- action: Started\n\n");
+				BeaconFormatPrintf(&OutputBuffer, "  [*] srvnet\n");
+				BeaconFormatPrintf(&OutputBuffer, "       |--- action: starttype=Manual\n");
+				BeaconFormatPrintf(&OutputBuffer, "       |--- action: Started\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  [*] LanmanServer\n");
 				BeaconFormatPrintf(&OutputBuffer, "       |--- action: starttype=Auto\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  [*] LanmanServer\n");
 				BeaconFormatPrintf(&OutputBuffer, "       |--- action: Started\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  ----------------------------------------------------\n\n\n");
 				BeaconFormatPrintf(&OutputBuffer, "  [+] 445/tcp bound - TRUE\n\n");
+			} else {
+				BeaconFormatPrintf(&OutputBuffer, "\n  [!] Failed to fully resume SMB functionality.\n");
+				BeaconFormatPrintf(&OutputBuffer, "      config srv2:   0x%lX\n", configSrv2Result);
+				BeaconFormatPrintf(&OutputBuffer, "      config srvnet: 0x%lX\n", configSrvnetResult);
+				BeaconFormatPrintf(&OutputBuffer, "      config lanman: 0x%lX\n", configLanmanResult);
+				BeaconFormatPrintf(&OutputBuffer, "      start srv2:    0x%lX\n", startSrv2Result);
+				BeaconFormatPrintf(&OutputBuffer, "      start srvnet:  0x%lX\n", startSrvnetResult);
+				BeaconFormatPrintf(&OutputBuffer, "      start lanman:  0x%lX\n\n", startLanmanResult);
 			}
 
 		} else if (strcmp(action, "stop") == 0) {

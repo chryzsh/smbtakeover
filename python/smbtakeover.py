@@ -63,7 +63,11 @@ class WMIEXEC:
 
             elif self.__options.module == "start":
                 executer_Service = Service_Toolkit(iWbemLevel1Login, dcom)
+                executer_Service.control_Service("manual-start", "srv2")
+                executer_Service.control_Service("manual-start", "srvnet")
                 executer_Service.control_Service("auto-start", "LanmanServer")
+                executer_Service.control_Service("start", "srvnet")
+                executer_Service.control_Service("start", "srv2")
                 executer_Service.control_Service("start", "LanmanServer")
 
             elif self.__options.module == "stop":

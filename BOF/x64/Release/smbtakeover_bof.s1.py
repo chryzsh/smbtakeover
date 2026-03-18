@@ -33,7 +33,7 @@ class SmbTakeoverBOF(BaseBOFTask):
             "  smbtakeover 10.0.0.32 start\n\n"
             "Notes:\n"
             "  - 'check' queries service state, start type, and binary path for LanmanServer, srv2, and srvnet\n"
-            "  - 'start' sets LanmanServer to AUTO start and starts it (requires SYSTEM or HIGH integrity)\n"
+            "  - 'start' sets srv2/srvnet to MANUAL, LanmanServer to AUTO, then starts srv2, srvnet, and LanmanServer (requires SYSTEM or HIGH integrity)\n"
             "  - 'stop' disables LanmanServer and stops all three services (requires SYSTEM or HIGH integrity)\n"
             "  - When targeting remote hosts, RPC over TCP is used as transport, so even after\n"
             "    disabling SMB remotely you can still reconnect via RPC\n"
