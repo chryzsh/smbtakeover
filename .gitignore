@@ -1,0 +1,8 @@
+.vs/
+*.obj
+*.pdb
+*.log
+*.htm
+packages/
+x64/
+__pycache__/
